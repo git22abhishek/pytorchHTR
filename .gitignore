@@ -1,0 +1,6 @@
+.env/
+.vscode/
+jupyter-env/
+.ipynb_checkpoints/
+__pycache__/
+images/
