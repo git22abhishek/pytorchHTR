@@ -1,10 +1,18 @@
 from torch.utils.data import Dataset
+from torchvision.transforms import Compose, ToTensor, Resize
+# import torchvision.transforms.functional as TF
 import pandas as pd
-import cv2
+# import cv2
 import glob
 
 from xml.etree import ElementTree
 import os
+
+from PIL import Image
+from PIL import ImageFile
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 
 class IAM(Dataset):
 
@@ -23,8 +31,17 @@ class IAM(Dataset):
 		image_name = self.data.at[index, 'Image']
 		image = self._read_image(image_name)
 		
-		if self.transforms:
+		if self.transforms is not None:
 			image = self.transforms(image)
+		else:
+			image = image.rotate(-90, expand=True)
+			transforms = Compose([
+				Resize((1024, 128)),
+				ToTensor(),
+				])
+			image = transforms(image)
+			# image = TF.rotate(image, 90)
+			# image = image.TF
 
 		target = self.data.at[index, 'Transcription']
 
@@ -40,7 +57,7 @@ class IAM(Dataset):
 		def get_form_name(line_id):
 			return '-'.join(line_id.split('-')[:2])
 
-		col_names = ['Image', 'Segmentation', 'Transcription']
+		col_names = ['Image', 'Segmentation', 'Transcription', 'Threshold']
 		rows = []
 
 		path = os.path.join(self.root_dir, 'largeWriterIndependentTextLineRecognitionTask')
@@ -70,11 +87,13 @@ class IAM(Dataset):
 				transcription = line.attrib['text'].replace('&quot;', '"')
 				segmentation = line.attrib['segmentation'] # result of segmentation, either 'ok' or 'err'
 				line_id = line.attrib['id']
+				threshold = line.attrib['threshold'] # threshold for binarization
 
 				rows.append({
 					'Image': line_id + '.png', 
 					'Segmentation': segmentation, 
-					'Transcription': transcription
+					'Transcription': transcription,
+					'Threshold': threshold,
 					})
 			
 		return pd.DataFrame(rows, columns=col_names)
@@ -91,12 +110,13 @@ class IAM(Dataset):
 			image_name
 			)
 
-		return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+		# return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+		return Image.open(path).convert("L")
 
 
 	def get_entire_dataset(self):
 
-		col_names = ['Image', 'Segmentation', 'Transcription']
+		col_names = ['Image', 'Segmentation', 'Transcription', 'Threshold']
 		rows = []
 
 		xml_files = sorted(glob.glob(os.path.join(self.root_dir, 'xml', '*.xml')))
@@ -114,11 +134,13 @@ class IAM(Dataset):
 				transcription = line.attrib['text'].replace('&quot;', '"')
 				segmentation = line.attrib['segmentation'] # result of segmentation, either 'ok' or 'err'
 				line_id = line.attrib['id']
+				threshold = line.attrib['threshold'] # threshold for binarization
 
 				rows.append({
 					'Image': line_id + '.png', 
 					'Segmentation': segmentation, 
-					'Transcription': transcription
+					'Transcription': transcription,
+					'Threshold': threshold,
 					})
 			
 		return pd.DataFrame(rows, columns=col_names)
