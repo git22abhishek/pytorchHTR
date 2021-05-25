@@ -1,30 +1,26 @@
 from torch.utils.data import Dataset
 from torchvision.transforms import Compose, ToTensor, Resize
-# import torchvision.transforms.functional as TF
+
+from PIL import Image
+from PIL import ImageFile
 import pandas as pd
-# import cv2
 import glob
 
 from xml.etree import ElementTree
 import os
 
-from PIL import Image
-from PIL import ImageFile
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 class IAM(Dataset):
 
-	def __init__(self, root_dir, split, transforms=None):
-
-		assert split in ('train', 'val', 'test')
+	def __init__(self, root_dir, transforms=None):
 
 		self.root_dir = root_dir
-		self.split = split
 		self.transforms = transforms
-		self.charset = ' !"#&\'()*+,-./0123456789:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-		self.data = self._create_split()
+		self.data = self._create_df()
+		self.charset = self.get_charset()
 
 	def __getitem__(self, index):
 
@@ -40,8 +36,6 @@ class IAM(Dataset):
 				ToTensor(),
 				])
 			image = transforms(image)
-			# image = TF.rotate(image, 90)
-			# image = image.TF
 
 		target = self.data.at[index, 'Transcription']
 
@@ -50,53 +44,6 @@ class IAM(Dataset):
 
 	def __len__(self):
 		return len(self.data)
-
-
-	def _create_split(self):
-
-		def get_form_name(line_id):
-			return '-'.join(line_id.split('-')[:2])
-
-		col_names = ['Image', 'Segmentation', 'Transcription', 'Threshold']
-		rows = []
-
-		path = os.path.join(self.root_dir, 'largeWriterIndependentTextLineRecognitionTask')
-
-		if self.split == 'val':
-			lines = []
-			for file in ['validationset1.txt', 'validationset2.txt']:
-				ids_path = os.path.join(path, file)
-				lines += open(ids_path).read().splitlines()
-			pass
-		else:
-			ids_path = os.path.join(path, f"{self.split}set.txt")
-			lines = open(ids_path).read().splitlines()
-
-		forms = list(set(map(get_form_name, lines)))
-
-		for form in forms:
-			xml_file = os.path.join(self.root_dir, 'xml', f"{form}.xml")
-
-			# Parse the xml file
-			dom = ElementTree.parse(xml_file)
-			root = dom.getroot()
-
-			# Iterate through all the lines in a form
-			for line in root.iter('line'):
-
-				transcription = line.attrib['text'].replace('&quot;', '"')
-				segmentation = line.attrib['segmentation'] # result of segmentation, either 'ok' or 'err'
-				line_id = line.attrib['id']
-				threshold = line.attrib['threshold'] # threshold for binarization
-
-				rows.append({
-					'Image': line_id + '.png', 
-					'Segmentation': segmentation, 
-					'Transcription': transcription,
-					'Threshold': threshold,
-					})
-			
-		return pd.DataFrame(rows, columns=col_names)
 
 
 	def _read_image(self, image_name):
@@ -110,11 +57,10 @@ class IAM(Dataset):
 			image_name
 			)
 
-		# return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-		return Image.open(path).convert("L")
+		return Image.open(path).convert("L") # Convert to Grayscale
 
 
-	def get_entire_dataset(self):
+	def _create_df(self):
 
 		col_names = ['Image', 'Segmentation', 'Transcription', 'Threshold']
 		rows = []
@@ -146,5 +92,12 @@ class IAM(Dataset):
 		return pd.DataFrame(rows, columns=col_names)
 
 
-# meow = IAM('/mnt/d/Machine-Learning/Datasets/iamdataset/uncompressed', split='test')
+	def get_charset(self):
 
+		data = self.data
+		chars = []
+
+		data.Transcription.apply(lambda x: chars.extend(list(x)))
+		chars = ''.join(sorted(set(chars)))
+
+		return chars
