@@ -47,7 +47,7 @@ class CRNNModel(nn.Module):
                             bidirectional=True, batch_first=True)
 
         self.fc1 = nn.Linear(1024, 256)
-        self.fc2 = nn.Linear(256, 80)
+        self.fc2 = nn.Linear(256, vocab_size + 1)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -71,26 +71,28 @@ class CRNNModel(nn.Module):
         out = self.layer4(out)
         out = self.avgpool(out)
 
-        print("CNN output before transpose:", out.shape)
+        # print("CNN output before transpose:", out.shape)
         # out = out.squeeze(dim=3).transpose(1, 2)
         out = out.permute(0, 2, 3, 1)
         out = out.reshape(out.size(0,), out.size(1), -1)
-        print("CNN output after transpose:", out.shape)
+        # print("CNN output after transpose:", out.shape)
 
         out, _ = self.lstm(out)
-        print("LSTM output:", out.shape)
+        # print("LSTM output:", out.shape)
         out = self.fc1(out)
-        print("FC1 output:", out.shape)
+        # print("FC1 output:", out.shape)
         out = self.fc2(out)
-        print("FC2 output:", out.shape)
+        # print("FC2 output:", out.shape)
 
         return out
 
 
 if __name__ == '__main__':
-    model = CRNNModel(vocab_size=80, time_steps=100)
+    model = CRNNModel(vocab_size=79, time_steps=100)
     # pytorchresnet18 = torch.hub.load('pytorch/vision:v0.9.0', 'resnet152', pretrained=False)
     # summary(model=model, input_size=(1, 1024, 128), batch_size=12)
     inp = torch.rand(16, 1, 1024, 128)
     model(inp)
+    nn.CTCLoss(blank=0, reduction='max', zero_infinity=True)
+    torch.nn.functional.log_softmax
     # print(model.modules)

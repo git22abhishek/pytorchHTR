@@ -1,103 +1,117 @@
 from torch.utils.data import Dataset
 from torchvision.transforms import Compose, ToTensor, Resize
 
-from PIL import Image
-from PIL import ImageFile
 import pandas as pd
+import numpy as np
 import glob
+import cv2
+from tqdm import tqdm
 
 from xml.etree import ElementTree
 import os
 
-
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+from deslant import deslant
 
 
 class IAM(Dataset):
 
-	def __init__(self, root_dir, transforms=None):
+    def __init__(self, root_dir, csv_file_path=None, transforms=None):
 
-		self.root_dir = root_dir
-		self.transforms = transforms
-		self.data = self._create_df()
-		self.charset = self.get_charset()
+        self.root_dir = root_dir
+        self.transforms = transforms
 
-	def __getitem__(self, index):
+        if csv_file_path is not None:
+            self.data = pd.read_csv(csv_file_path)
+        else:
+            self.data = self._create_df()
 
-		image_name = self.data.at[index, 'Image']
-		image = self._read_image(image_name)
-		
-		if self.transforms is not None:
-			image = self.transforms(image)
-		else:
-			image = image.rotate(-90, expand=True)
-			transforms = Compose([
-				Resize((1024, 128)),
-				ToTensor(),
-				])
-			image = transforms(image)
+        self.charset = self.get_charset()
 
-		target = self.data.at[index, 'Transcription']
+    def __getitem__(self, index):
 
-		return (image, target)
+        image_name = self.data.at[index, 'Image']
+        image = self._read_image(image_name)
 
+        if self.transforms is not None:
+            image = self.transforms(image)
+        else:
+            # Deslant
+            image = deslant(image, bg_color=255).img
+            # Binarize
+            image = (image > self.data.at[index, 'Threshold']) * 1
+            # Resize
+            image = cv2.resize(np.array(image, dtype=np.float32), (1024, 128),
+                               interpolation=cv2.INTER_AREA)
+            # Rotate
+            image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
 
-	def __len__(self):
-		return len(self.data)
+            transforms = Compose([
+                ToTensor(),
+            ])
+            image = transforms(image)
 
+        target = self.data.at[index, 'Transcription']
 
-	def _read_image(self, image_name):
+        return (image, target)
 
-		path = image_name.split('-') # ['a01', '000u', '00.png']
-		path = os.path.join(
-			self.root_dir,
-			'lines',
-			path[0],
-			'-'.join(path[:2]),
-			image_name
-			)
+    def __len__(self):
+        return len(self.data)
 
-		return Image.open(path).convert("L") # Convert to Grayscale
+    def _read_image(self, image_name):
 
+        path = image_name.split('-')  # ['a01', '000u', '00.png']
+        path = os.path.join(
+            self.root_dir,
+            'lines',
+            path[0],
+            '-'.join(path[:2]),
+            image_name
+        )
 
-	def _create_df(self):
+        return cv2.imread(path, cv2.IMREAD_GRAYSCALE)
 
-		col_names = ['Image', 'Segmentation', 'Transcription', 'Threshold']
-		rows = []
+    def _create_df(self):
 
-		xml_files = sorted(glob.glob(os.path.join(self.root_dir, 'xml', '*.xml')))
+        col_names = ['Image', 'Segmentation', 'Transcription', 'Threshold']
+        rows = []
 
-		for xml_file in xml_files:
-			form = os.path.join(self.root_dir, 'xml', xml_file)
+        xml_files = sorted(
+            glob.glob(os.path.join(self.root_dir, 'xml', '*.xml')))
 
-			# Parse the xml file
-			dom = ElementTree.parse(form)
-			root = dom.getroot()
+        tk = tqdm(xml_files, desc='Loading dataset')
 
-			# Iterate through all the lines in a form
-			for line in root.iter('line'):
+        for xml_file in tk:
+            # form = os.path.join(self.root_dir, 'xml', xml_file)
 
-				transcription = line.attrib['text'].replace('&quot;', '"')
-				segmentation = line.attrib['segmentation'] # result of segmentation, either 'ok' or 'err'
-				line_id = line.attrib['id']
-				threshold = line.attrib['threshold'] # threshold for binarization
+            # Parse the xml file
+            dom = ElementTree.parse(xml_file)
+            root = dom.getroot()
 
-				rows.append({
-					'Image': line_id + '.png', 
-					'Segmentation': segmentation, 
-					'Transcription': transcription,
-					'Threshold': threshold,
-					})
-			
-		return pd.DataFrame(rows, columns=col_names)
+            # Iterate through all the lines in a form
+            for line in root.iter('line'):
 
+                transcription = line.attrib['text'].replace('&quot;', '"')
+                # result of segmentation, either 'ok' or 'err'
+                segmentation = line.attrib['segmentation']
+                line_id = line.attrib['id']
+                # threshold for binarization
+                threshold = line.attrib['threshold']
 
-	def get_charset(self):
+                rows.append({
+                    'Image': line_id + '.png',
+                    'Segmentation': segmentation,
+                    'Transcription': transcription,
+                    'Threshold': threshold,
+                })
 
-		data = self.data
-		chars = []
+        return pd.DataFrame(rows, columns=col_names)
 
-		data.Transcription.apply(lambda x: chars.extend(list(x)))
-		chars = ''.join(sorted(set(chars)))
+    def get_charset(self):
 
-		return chars
+        data = self.data
+        chars = []
+
+        data.Transcription.apply(lambda x: chars.extend(list(x)))
+        chars = ''.join(sorted(set(chars)))
+
+        return chars
