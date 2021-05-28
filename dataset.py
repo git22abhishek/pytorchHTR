@@ -38,7 +38,7 @@ class IAM(Dataset):
             # Deslant
             image = deslant(image, bg_color=255).img
             # Binarize
-            image = (image > self.data.at[index, 'Threshold']) * 1
+            image = (image > int(self.data.at[index, 'Threshold'])) * 1
             # Resize
             image = cv2.resize(np.array(image, dtype=np.float32), (1024, 128),
                                interpolation=cv2.INTER_AREA)
