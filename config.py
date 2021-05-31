@@ -5,8 +5,8 @@ class Data:
     SEED = 42
     NUM_WORKERS = 0
     DEFAULT_SPLIT = False
-    SPLIT = (0.006, 0.002, 0.002)
-    BATCH_SIZE = (1, 1, 1)
+    SPLIT = (0.6, 0.01, 0.39)
+    BATCH_SIZE = (16, 32, 32)
 
 
 class Optimizer:
@@ -31,6 +31,6 @@ class config:
     sch = Scheduler()
     ctc_loss = CTCLoss()
     TIME_STEPS = 100
-    NUM_EPOCHS = 200
+    NUM_EPOCHS = 1
     RESUME_TRAINING = False
     TRAIN_CHECKPOINT_PATH = 'checkpoints/training_state.pth'

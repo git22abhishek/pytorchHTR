@@ -3,7 +3,8 @@ from torch import nn
 from torch.nn import functional as F
 from torchvision.models.resnet import BasicBlock
 
-from torchsummary import summary
+# from torchsummary import summary
+import numpy as np
 
 
 def downsample(chan_in, chan_out, stride, pad=0):
@@ -88,11 +89,40 @@ class CRNNModel(nn.Module):
 
 
 if __name__ == '__main__':
+    from dataset import Encoder, IAM
+    from dataloader import CTCDataLoader
+    dataset = IAM('/mnt/d/Machine-Learning/Datasets/iamdataset/uncompressed',
+                  csv_file_path='iam_df.csv')
+    encoder = Encoder()
+
+    data_loader = CTCDataLoader(dataset, encoder)
+    train_loader, val_loader = data_loader(
+        split=(0.002, 0.002), batch_size=(1, 1, 1))
     model = CRNNModel(vocab_size=79, time_steps=100)
+    device = torch.device('cpu')
+    checkpoint = torch.load(
+        'checkpoints/training_state.pth', map_location=device)
+    model.load_state_dict(checkpoint['model_state'])
+
+    for batch in train_loader:
+        model.eval()
+        images, targets, target_lengths, targets_original = batch
+        preds = model(images)
+        text = encoder.best_path_decode(preds)
+        print(text, targets_original)
+        break
+        # model.to('cpu')
     # pytorchresnet18 = torch.hub.load('pytorch/vision:v0.9.0', 'resnet152', pretrained=False)
     # summary(model=model, input_size=(1, 1024, 128), batch_size=12)
-    inp = torch.rand(16, 1, 1024, 128)
-    model(inp)
-    nn.CTCLoss(blank=0, reduction='max', zero_infinity=True)
-    torch.nn.functional.log_softmax
+    # model.eval()
+    # inp = torch.rand(1, 1, 1024, 128)
+    # preds = model(inp)
+    # encoder = Encoder()
+    # text = encoder.decode(preds)
+    # print(text)
+    # outs = model.best_path_decode(inp)
+    # print(outs)
+    # ''.join([self.decode_map.get(letter) for letter in outs[0]])
+    # nn.CTCLoss(blank=0, reduction='max', zero_infinity=True)
+    # torch.nn.functional.log_softmax
     # print(model.modules)

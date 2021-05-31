@@ -1,5 +1,7 @@
+import torch
 from torch.utils.data import Dataset
-from torchvision.transforms import Compose, ToTensor, Resize
+from torchvision.transforms import functional as F
+import albumentations as A
 
 import pandas as pd
 import numpy as np
@@ -38,17 +40,23 @@ class IAM(Dataset):
             # Deslant
             image = deslant(image, bg_color=255).img
             # Binarize
-            image = (image > int(self.data.at[index, 'Threshold'])) * 1
-            # Resize
-            image = cv2.resize(np.array(image, dtype=np.float32), (1024, 128),
-                               interpolation=cv2.INTER_AREA)
+            # image = (image > int(self.data.at[index, 'Threshold'])) * 1
+            _, image = cv2.threshold(
+                image, 0, 1, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+
+            transforms = A.Compose([
+                A.augmentations.geometric.transforms.Affine(
+                    fit_output=True, shear=(-5, 5), cval=1, p=1.0),
+                A.augmentations.geometric.Resize(
+                    height=128, width=1024, always_apply=True),
+                # A.augmentations.transforms.Blur(blur_limit=(3, 4), p=0.4),
+            ])
+            image = transforms(image=image)['image']
+
             # Rotate
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
-
-            transforms = Compose([
-                ToTensor(),
-            ])
-            image = transforms(image)
+            # Convert from uint8 to float and bring channel to first axis
+            image = F.to_tensor(image)
 
         target = self.data.at[index, 'Transcription']
 
@@ -81,8 +89,6 @@ class IAM(Dataset):
         tk = tqdm(xml_files, desc='Loading dataset')
 
         for xml_file in tk:
-            # form = os.path.join(self.root_dir, 'xml', xml_file)
-
             # Parse the xml file
             dom = ElementTree.parse(xml_file)
             root = dom.getroot()
@@ -115,3 +121,46 @@ class IAM(Dataset):
         chars = ''.join(sorted(set(chars)))
 
         return chars
+
+
+class Encoder:
+
+    def __init__(self, charset=None):
+        if charset == None:  # When running inference without initializing dataset class
+            # IAM character set
+            charset = ' !"#&\'()*+,-./0123456789:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+        self.charset = charset
+
+    def encode(self, transcriptions):
+        char_dic = {char: index for index,
+                    char in enumerate(self.charset, 1)}
+
+        target_lengths = [len(line) for line in transcriptions]
+        target_lengths = torch.tensor(target_lengths, dtype=torch.long)
+        targets = []
+        for line in transcriptions:
+            targets.extend([char_dic[char] for char in line])
+        targets = torch.tensor(targets, dtype=torch.long)
+
+        return targets, target_lengths
+
+    def best_path_decode(self, predictions, return_text=False):
+
+        softmax_out = predictions.softmax(2).argmax(2).detach().cpu().numpy()
+
+        decoded = []
+        for i in range(0, softmax_out.shape[0]):
+            dup_rm = softmax_out[i, :][np.insert(
+                np.diff(softmax_out[i, :]).astype(bool), 0, True)]
+            dup_rm = dup_rm[dup_rm != 0]
+            decoded.append(dup_rm.astype(int))
+
+        if not return_text:
+            return decoded
+
+        transcriptions = []
+        for line in decoded:
+            pred = ''.join([self.charset[letter-1] for letter in line])
+            transcriptions.append(pred)
+
+        return transcriptions
