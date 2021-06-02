@@ -29,21 +29,21 @@ class IAM(Dataset):
         self.charset = self.get_charset()
 
     def __getitem__(self, index):
-
+        
         image_name = self.data.at[index, 'Image']
         image = self._read_image(image_name)
-
+        '''
         if self.transforms is not None:
             image = self.transforms(image)
         else:
             # Deslant
-            '''image = deslant(image, bg_color=255).img'''
+            image = deslant(image, bg_color=255).img
             # Binarize
             # image = (image > int(self.data.at[index, 'Threshold'])) * 1
-            ''''
+            
             _, image = cv2.threshold(
                 image, 0, 1, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-            '''
+            
             transforms = A.Compose([
                 # A.augmentations.geometric.transforms.Affine(
                 #     fit_output=True, shear=(-5, 5), cval=1, p=1.0),
@@ -56,6 +56,42 @@ class IAM(Dataset):
             # Rotate
             # image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
             # Convert from uint8 to float and bring channel to first axis
+            # image = F.to_tensor(image)
+        '''
+        if self.transforms is not None:
+            image = self.transforms(image)
+        else:
+            # Deslant
+            bg = np.max(image[0, :])
+            image = deslant(image, bg_color=int(bg)).img
+            # Binarize
+            binarize = np.random.choice((True, False), p=(0.3, 0.7))
+            cval = (195, 255)
+            if binarize:
+                _, image = cv2.threshold(
+                    image, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+            
+            transforms = A.Compose([
+                A.augmentations.geometric.transforms.Affine(scale=0.8,
+                    translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}, 
+                    shear=(-3, 3), cval=cval, p=0.8),
+                A.augmentations.geometric.Resize(
+                    height=128, width=1024, p=1.0, always_apply=True),
+                A.augmentations.transforms.Blur(blur_limit=(3, 4), p=0.4),
+                A.augmentations.transforms.GaussNoise(var_limit=(
+                    10.0, 50.0), mean=0, per_channel=True, always_apply=False, p=0.3)
+            ])
+            image = transforms(image=image)['image']
+
+            # Binarize again
+            binarize = np.random.choice((True, False), p=(0.3, 0.7))
+            if binarize:
+                _, final = cv2.threshold(
+                    image, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+
+            # # Rotate
+            # image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            # # Convert from uint8 to float and bring channel to first axis
             # image = F.to_tensor(image)
 
         target = self.data.at[index, 'Transcription']
