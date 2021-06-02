@@ -25,7 +25,7 @@ class Collate:
 class CTCDataLoader:
 
     def __init__(self, ds, encoder, shuffle=True, seed=42, num_workers=2):
-        assert isinstance(ds, IAM)
+        # assert isinstance(ds, IAM)
         assert isinstance(shuffle, bool)
         assert isinstance(seed, int)
 

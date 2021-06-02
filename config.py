@@ -5,7 +5,7 @@ class Data:
     SEED = 42
     NUM_WORKERS = 0
     DEFAULT_SPLIT = False
-    SPLIT = (0.6, 0.01, 0.39)
+    SPLIT = (0.6, 0.2, 0.2)
     BATCH_SIZE = (16, 32, 32)
 
 
