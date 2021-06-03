@@ -5,8 +5,8 @@ class Data:
     SEED = 42
     NUM_WORKERS = 0
     DEFAULT_SPLIT = False
-    SPLIT = (0.6, 0.2, 0.2)
-    BATCH_SIZE = (16, 32, 32)
+    SPLIT = (0.006, 0.002, 0.002)
+    BATCH_SIZE = (2, 1, 1)
 
 
 class Optimizer:

@@ -1,17 +1,19 @@
-from deslant import deslant
-import os
-from xml.etree import ElementTree
-from tqdm import tqdm
-import cv2
-import glob
 import torch
 from torch.utils.data import Dataset
+import numpy as np
+import pandas as pd
+import glob
+from tqdm import tqdm
+
 from torchvision.transforms import functional as F
 import albumentations as A
-
 from skimage import io
-import pandas as pd
-import numpy as np
+import cv2
+
+import os
+from xml.etree import ElementTree
+
+from deslant import deslant
 
 
 class IAM(Dataset):
@@ -29,52 +31,27 @@ class IAM(Dataset):
         self.charset = self.get_charset()
 
     def __getitem__(self, index):
-        
+
         image_name = self.data.at[index, 'Image']
         image = self._read_image(image_name)
-        '''
-        if self.transforms is not None:
-            image = self.transforms(image)
-        else:
-            # Deslant
-            image = deslant(image, bg_color=255).img
-            # Binarize
-            # image = (image > int(self.data.at[index, 'Threshold'])) * 1
-            
-            _, image = cv2.threshold(
-                image, 0, 1, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-            
-            transforms = A.Compose([
-                # A.augmentations.geometric.transforms.Affine(
-                #     fit_output=True, shear=(-5, 5), cval=1, p=1.0),
-                A.augmentations.geometric.Resize(
-                    height=128, width=1024, always_apply=True),
-                # A.augmentations.transforms.Blur(blur_limit=(3, 4), p=0.4),
-            ])
-            image = transforms(image=image)['image']
 
-            # Rotate
-            # image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
-            # Convert from uint8 to float and bring channel to first axis
-            # image = F.to_tensor(image)
-        '''
         if self.transforms is not None:
             image = self.transforms(image)
         else:
             # Deslant
-            bg = np.max(image[0, :])
-            image = deslant(image, bg_color=int(bg)).img
+            bg_color = np.bincount(image[0, :]).argmax()
+            image = deslant(image, bg_color=int(bg_color)).img
             # Binarize
             binarize = np.random.choice((True, False), p=(0.3, 0.7))
             cval = (195, 255)
             if binarize:
                 _, image = cv2.threshold(
                     image, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-            
+
             transforms = A.Compose([
-                A.augmentations.geometric.transforms.Affine(scale=0.8,
-                    translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}, 
-                    shear=(-3, 3), cval=cval, p=0.8),
+                A.augmentations.geometric.transforms.Affine(
+                    scale=0.8, shear=(-3, 3), cval=cval, p=0.8,
+                    translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}),
                 A.augmentations.geometric.Resize(
                     height=128, width=1024, p=1.0, always_apply=True),
                 A.augmentations.transforms.Blur(blur_limit=(3, 4), p=0.4),
@@ -90,9 +67,9 @@ class IAM(Dataset):
                     image, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
 
             # # Rotate
-            # image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+            image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
             # # Convert from uint8 to float and bring channel to first axis
-            # image = F.to_tensor(image)
+            image = F.to_tensor(image)
 
         target = self.data.at[index, 'Transcription']
 
@@ -175,25 +152,25 @@ class Bentham(Dataset):
     def __getitem__(self, index):
 
         image_name = self.data.at[index, 'Image']
-        image = self._read_image(image_name)
+        image, bg_color = self._read_image(image_name)
 
         if self.transforms is not None:
             image = self.transforms(image)
         else:
             # Deslant
-            bg = np.max(image[0, :])
-            image = deslant(image, bg_color=int(bg)).img
+            image = deslant(image, bg_color=int(bg_color)).img
             # Binarize
             binarize = np.random.choice((True, False), p=(0.3, 0.7))
             cval = (195, 225, 235, 255)
             if binarize:
                 _, image = cv2.threshold(
                     image, 0, 255, cv2.THRESH_BINARY+cv2.THRESH_OTSU)
-            
+
             transforms = A.Compose([
                 A.augmentations.geometric.transforms.Affine(scale=0.8,
-                    translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}, 
-                    shear=(-3, 3), cval=cval, p=0.8),
+                                                            translate_percent={
+                                                                "x": (-0.1, 0.1), "y": (-0.1, 0.1)},
+                                                            shear=(-3, 3), cval=cval, p=0.8),
                 A.augmentations.geometric.Resize(
                     height=128, width=1024, p=1.0, always_apply=True),
                 A.augmentations.transforms.Blur(blur_limit=(3, 4), p=0.4),
@@ -212,7 +189,6 @@ class Bentham(Dataset):
             image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
             # Convert from uint8 to float and bring channel to first axis
             image = F.to_tensor(image)
-
 
         target = self.data.at[index, 'Transcription']
 
@@ -257,8 +233,8 @@ class Bentham(Dataset):
 
         # skimage.color.rbg2gray converts to float64, uint8 is needed for deslant
         gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        bg_color = np.max(gray[0])
-        return (gray * (mask == 255 * 1)) + ((mask == 0) * bg_color).astype(np.uint8)
+        bg_color = np.bincount(gray[0, :]).argmax()
+        return (gray * (mask == 255 * 1)) + ((mask == 0) * bg_color).astype(np.uint8), bg_color
 
     def get_charset(self):
 

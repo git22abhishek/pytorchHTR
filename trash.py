@@ -32,7 +32,8 @@ def train_log(train_loss, val_loss, example_ct, epoch):
     # where the magic happens
     wandb.log({"epoch": epoch, "train_loss": train_loss, "valid_loss": val_loss,
                "num_samples": example_ct}, step=example_ct)
-    # print(f"Loss after " + str(example_ct).zfill(5) + f" examples: {loss:.3f}")
+    print(f"Train loss: {train_log}, Validation loss: {val_loss} after " +
+          str(example_ct).zfill(5) + f" examples.")
 
 
 def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_loader, tk, ck_path):
@@ -83,6 +84,7 @@ def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_lo
 
             # Validate and report metrics every 25th batch
             if ((i + 1) % 25) == 0:
+                print("Validating...")
 
                 model.eval()
 

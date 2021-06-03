@@ -93,22 +93,22 @@ if __name__ == '__main__':
     from dataloader import CTCDataLoader
     dataset = IAM('/mnt/d/Machine-Learning/Datasets/iamdataset/uncompressed',
                   csv_file_path='iam_df.csv')
-    encoder = Encoder()
+    encoder = Encoder(dataset='IAM')
 
     data_loader = CTCDataLoader(dataset, encoder)
-    train_loader, val_loader = data_loader(
-        split=(0.002, 0.002), batch_size=(1, 1, 1))
+    train_loader, val_loader, test_loader = data_loader(
+        split=(0.7, 0.2, 0.2), batch_size=(1, 8, 8))
     model = CRNNModel(vocab_size=79, time_steps=100)
     device = torch.device('cpu')
     checkpoint = torch.load(
         'checkpoints/training_state.pth', map_location=device)
     model.load_state_dict(checkpoint['model_state'])
 
-    for batch in train_loader:
+    for batch in test_loader:
         model.eval()
         images, targets, target_lengths, targets_original = batch
         preds = model(images)
-        text = encoder.best_path_decode(preds)
+        text = encoder.best_path_decode(preds, return_text=True)
         print(text, targets_original)
         break
         # model.to('cpu')
