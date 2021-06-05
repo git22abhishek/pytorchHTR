@@ -1,2 +1,0 @@
-torch torchvision jupyter jupyterlab scikit-image pandas opencv-python
-glob

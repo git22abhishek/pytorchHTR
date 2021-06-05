@@ -89,16 +89,28 @@ class CRNNModel(nn.Module):
 
 
 if __name__ == '__main__':
-    from dataset import Encoder, IAM
-    from dataloader import CTCDataLoader
-    dataset = IAM('/mnt/d/Machine-Learning/Datasets/iamdataset/uncompressed',
-                  csv_file_path='iam_df.csv')
-    encoder = Encoder(dataset='IAM')
+    from dataset import Encoder, dataset, Collate
+    from torch.utils.data import DataLoader
+    import Levenshtein as leven
 
-    data_loader = CTCDataLoader(dataset, encoder)
-    train_loader, val_loader, test_loader = data_loader(
-        split=(0.7, 0.2, 0.2), batch_size=(1, 8, 8))
+    trainset, validset, testset = dataset(
+        'IAM', '/mnt/d/Machine-Learning/Datasets/iamdataset/uncompressed',
+        csv_file_path='IAM_df.csv',
+        default_partition=False,
+        partition=(0.7, 0.2, 0.2),
+        shuffle=False,
+        seed=42
+    )
+
+    encoder = Encoder(trainset.charset)
+
+    collater = Collate(encoder)
+
+    test_loader = DataLoader(testset, batch_size=8, shuffle=False,
+                             collate_fn=collater, num_workers=0)
+
     model = CRNNModel(vocab_size=79, time_steps=100)
+
     device = torch.device('cpu')
     checkpoint = torch.load(
         'checkpoints/training_state.pth', map_location=device)
@@ -106,11 +118,19 @@ if __name__ == '__main__':
 
     for batch in test_loader:
         model.eval()
-        images, targets, target_lengths, targets_original = batch
+        images, targets, target_lengths, gt = batch
         preds = model(images)
-        text = encoder.best_path_decode(preds, return_text=True)
-        print(text, targets_original)
-        break
+        preds_decoded = encoder.best_path_decode(preds, return_text=True)
+
+        # print(text, targets_original)
+        # print(text[0], targets[:target_lengths[0]])
+        # print(preds_decoded[0], gt[0])
+        distance = 0
+        for i in range(len(preds_decoded)):
+            distance += leven.distance(preds_decoded[i], gt[i])
+            # print(preds_decoded[i], gt[i])
+        print(distance/len(preds_decoded))
+        # break
         # model.to('cpu')
     # pytorchresnet18 = torch.hub.load('pytorch/vision:v0.9.0', 'resnet152', pretrained=False)
     # summary(model=model, input_size=(1, 1024, 128), batch_size=12)

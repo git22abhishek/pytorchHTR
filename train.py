@@ -1,12 +1,14 @@
 import torch
+from torch.utils.data import DataLoader
+import albumentations as A
 from tqdm import tqdm, trange
 import sys
 import wandb
 
-from dataset import IAM, Encoder
-from dataloader import CTCDataLoader
+from dataset import dataset, Encoder, Collate
 from model import CRNNModel
 from config import config
+import transform
 
 
 def calculate_ctc_loss(ctc_loss_fn, preds, targets, target_lengths):
@@ -27,62 +29,106 @@ def calculate_ctc_loss(ctc_loss_fn, preds, targets, target_lengths):
     return loss
 
 
-def train_log(loss, example_ct, epoch):
+def train_log(train_loss, val_loss, example_ct, epoch):
 
     # where the magic happens
-    # wandb.log({"epoch": epoch, "training_loss": loss.item(),
-    #   "num_samples": example_ct}, step=example_ct)
-    print(f"Loss after " + str(example_ct).zfill(5) + f" examples: {loss:.3f}")
+    wandb.log({"epoch": epoch, "train_loss": train_loss, "valid_loss": val_loss,
+               "num_samples": example_ct}, step=example_ct)
+    print(f"Train loss: {train_loss}, Validation loss: {val_loss} after " +
+          str(example_ct).zfill(5) + f" examples.")
 
 
-def train_fn(model, data_loader, ctc_loss_fn, optimizer, dev, epoch):
+def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_loader, tk, ck_path):
 
-    model.train()
+    # tell wandb to watch what the model gets up to: gradients, weights, and more
+    wandb.watch(model, ctc_loss_fn, log="all", log_freq=10)
 
-    avg_batch_loss = 0
+    # Run training and track with wandb
+    example_ct = 0  # number of examples (images) seen
 
-    tk = tqdm(data_loader, total=len(data_loader),
-              leave=False, file=sys.stdout, unit_scale=True, desc="Training")
+    for epoch in tk:
 
-    example_ct = 0  # number of examples seen
+        train_tk = tqdm(train_loader, total=len(train_loader),
+                        leave=False, file=sys.stdout, unit_scale=True, desc="Training")
 
-    for i, batch in enumerate(tk):
+        avg_epoch_loss = 0
 
-        images, targets, target_lengths, _ = batch
+        for i, batch in enumerate(train_tk):
 
-        # Move to GPU if available
-        # model.to(dev)
-        # images.to(dev)
-        # targets.to(dev)
-        # target_lengths.to(dev)
+            model.train()
 
-        # # Remove gradients from previous update
-        # optimizer.zero_grad()
+            images, targets, target_lengths, _ = batch
+            example_ct += images.shape[0]
 
-        # # Forward pass
-        # preds = model(images)
+            # Move to GPU if available
+            model.to(dev)
+            images = images.to(dev)
+            targets = targets.to(dev)
+            target_lengths = target_lengths.to(dev)
 
-        # # Calculate loss
-        # loss = calculate_ctc_loss(ctc_loss_fn, preds, targets, target_lengths)
+            # Remove gradients from previous update
+            optimizer.zero_grad()
 
-        # # Backward pass
-        # loss.backward()
+            # Forward pass
+            preds = model(images)
 
-        # # Update Gradients
-        # optimizer.step()
+            # Calculate loss
+            loss = calculate_ctc_loss(
+                ctc_loss_fn, preds, targets, target_lengths)
+            train_loss = loss.item()
+            avg_epoch_loss += train_loss
 
-        # would break if training is resumed later with different batch_size
-        example_ct += images.shape[0] * (epoch+1)
-        # Report metrics every 25th batch
-        loss = 0
-        if ((i + 1) % 25) == 0:
-            train_log(loss, example_ct, epoch)
+            # Backward pass
+            loss.backward()
 
-        # avg_batch_loss += loss.item()
+            # Update Gradients
+            optimizer.step()
 
-    tk.close()
+            # Validate and report metrics every 25th batch
+            if ((i + 1) % 25) == 0:
+                print("Validating...")
 
-    return avg_batch_loss/len(data_loader)
+                model.eval()
+
+                avg_val_loss = 0
+
+                for batch in val_loader:
+                    images, targets, target_lengths, _ = batch
+
+                    with torch.no_grad():
+
+                        images, targets, target_lengths, targets_original = batch
+
+                        # Move to GPU if available
+                        model.to(dev)
+                        images = images.to(dev)
+                        targets = targets.to(dev)
+                        target_lengths = target_lengths.to(dev)
+
+                        preds = model(images)
+
+                        val_loss = calculate_ctc_loss(
+                            ctc_loss_fn, preds, targets, target_lengths)
+                        avg_val_loss += val_loss.item()
+
+                avg_val_loss = avg_val_loss / len(val_loader)
+
+                train_log(train_loss, avg_val_loss, example_ct, epoch)
+
+        avg_epoch_loss = avg_epoch_loss / len(train_loader)
+        print(
+            f'Epoch: {epoch}, Avg Train Loss: {avg_epoch_loss}')
+
+        print('Saving model state...')
+        torch.save({
+            'epoch': epoch,
+            'model_state': model.state_dict(),
+            'optimizer_state': optimizer.state_dict(),
+            'scheduler_state': scheduler.state_dict(),
+            'train_loss': train_loss,
+        }, ck_path)
+
+    return model
 
 
 def eval_fn(model, data_loader, ctc_loss_fn, dev, encoder, epoch):
@@ -103,9 +149,9 @@ def eval_fn(model, data_loader, ctc_loss_fn, dev, encoder, epoch):
 
             # Move to GPU if available
             model.to(dev)
-            images.to(dev)
-            targets.to(dev)
-            target_lengths.to(dev)
+            images = images.to(dev)
+            targets = targets.to(dev)
+            target_lengths = target_lengths.to(dev)
 
             batch_preds = model(images)
 
@@ -131,88 +177,97 @@ def eval_fn(model, data_loader, ctc_loss_fn, dev, encoder, epoch):
 
 def training_pipeline(config):
 
-    # wandb.login()
+    wandb.login()
 
-    # with wandb.init(project="pytorch-demo", config=config):
-    # access all HPs through wandb.config, so logging matches execution!
-    # config = wandb.config
+    with wandb.init(project="handwriting-recognition", config=config):
+        # # access all HPs through wandb.config, so logging matches execution!
+        # config = wandb.config
 
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-    dataset = dataset = IAM(config.data.DATASET_ROOT_DIR,
-                            csv_file_path=config.data.CSV_FILE_PATH)
+        train_transforms = A.Compose([
+            transform.Deslant(always_apply=True, p=1.0),
+            transform.Binarize(p=0.3),
+            A.augmentations.geometric.transforms.Affine(
+                scale=0.8, shear=(-3, 3), cval=(195, 255), p=0.8,
+                translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}),
+            A.augmentations.geometric.Resize(
+                height=128, width=1024, p=1.0, always_apply=True),
+            A.augmentations.transforms.Blur(blur_limit=(3, 4), p=0.4),
+            A.augmentations.transforms.GaussNoise(var_limit=(
+                10.0, 50.0), mean=0, per_channel=True, always_apply=False, p=0.3),
+            transform.Binarize(p=0.3),
+            transform.Rotate(always_apply=True, p=1.0),
+            transform.ToTensor(always_apply=True, p=1.0)
+        ])
 
-    encoder = Encoder(dataset.charset)
+        trainset, validset, testset = dataset(
+            'IAM', config.data.DATASET_ROOT_DIR,
+            csv_file_path=config.data.CSV_FILE_PATH,
+            default_partition=config.data.DEFAULT_PARTITION,
+            partition=config.data.PARTITION,
+            shuffle=config.data.SHUFFLE,
+            seed=config.data.SEED,
+            train_transform=train_transforms
+        )
 
-    data_loader = CTCDataLoader(
-        dataset, encoder,
-        shuffle=config.data.SHUFFLE,
-        seed=config.data.SEED,
-        num_workers=config.data.NUM_WORKERS
-    )
+        encoder = Encoder(trainset.charset)
+        collater = Collate(encoder)
 
-    train_loader, val_loader, test_loader = data_loader(
-        default_split=config.data.DEFAULT_SPLIT,
-        split=config.data.SPLIT,
-        batch_size=config.data.BATCH_SIZE
-    )
+        train_loader = DataLoader(trainset,
+                                  batch_size=config.data.BATCH_SIZE[0],
+                                  shuffle=config.data.SHUFFLE,
+                                  collate_fn=collater,
+                                  num_workers=config.data.NUM_WORKERS
+                                  )
 
-    ctc_loss = torch.nn.CTCLoss(
-        blank=config.ctc_loss.BLANK,
-        reduction=config.ctc_loss.REDUCTION,
-        zero_infinity=config.ctc_loss.ZERO_INFINITY
-    )
+        val_loader = DataLoader(validset,
+                                batch_size=config.data.BATCH_SIZE[1],
+                                shuffle=config.data.SHUFFLE,
+                                collate_fn=collater, num_workers=config.data.NUM_WORKERS
+                                )
+        test_loader = DataLoader(testset,
+                                 batch_size=config.data.BATCH_SIZE[-1],
+                                 shuffle=False, collate_fn=collater,
+                                 num_workers=config.data.NUM_WORKERS
+                                 )
 
-    model = CRNNModel(vocab_size=len(dataset.charset),
-                      time_steps=config.TIME_STEPS)
+        ctc_loss = torch.nn.CTCLoss(
+            blank=config.ctc_loss.BLANK,
+            reduction=config.ctc_loss.REDUCTION,
+            zero_infinity=config.ctc_loss.ZERO_INFINITY
+        )
 
-    optimizer = torch.optim.Adam(model.parameters(), config.opt.LR)
+        model = CRNNModel(vocab_size=len(trainset.charset),
+                          time_steps=config.TIME_STEPS)
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer=optimizer,
-        factor=config.sch.FACTOR,
-        patience=config.sch.PATIENCE,
-        verbose=config.sch.VERBOSE,
-    )
+        optimizer = torch.optim.Adam(model.parameters(), config.opt.LR)
 
-    if config.RESUME_TRAINING:
-        print('Loading model from last checkpoint:...')
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer=optimizer,
+            factor=config.sch.FACTOR,
+            patience=config.sch.PATIENCE,
+            verbose=config.sch.VERBOSE,
+        )
 
-        checkpoint = torch.load(config.TRAIN_CHECKPOINT_PATH)
-        model.load_state_dict(checkpoint['model_state'])
-        optimizer.load_state_dict(checkpoint['optimizer_state'])
-        scheduler.load_state_dict(checkpoint['scheduler_state'])
+        if config.RESUME_TRAINING:
+            print('Loading model from last checkpoint:...')
 
-        tk = tqdm(
-            range(checkpoint['epoch'], config.NUM_EPOCHS), file=sys.stdout, desc='EPOCHS')
+            checkpoint = torch.load(config.TRAIN_CHECKPOINT_PATH)
+            model.load_state_dict(checkpoint['model_state'])
+            optimizer.load_state_dict(checkpoint['optimizer_state'])
+            scheduler.load_state_dict(checkpoint['scheduler_state'])
 
-    else:
-        tk = tqdm(range(config.NUM_EPOCHS), file=sys.stdout, desc='EPOCHS')
+            tk = tqdm(
+                range(checkpoint['epoch'], config.NUM_EPOCHS), file=sys.stdout, desc='EPOCHS')
 
-    # tell wandb to watch what the model gets up to: gradients, weights, and more
-    # wandb.watch(model, ctc_loss, log="all", log_freq=10)
+        else:
+            tk = tqdm(range(config.NUM_EPOCHS), file=sys.stdout, desc='EPOCHS')
 
-    for epoch in tk:
-        train_loss = train_fn(model, train_loader,
-                              ctc_loss, optimizer, DEVICE, epoch)
-        # valid_preds, valid_loss = eval_fn(
-        #     model, val_loader, ctc_loss, DEVICE, epoch)
+        model = train_fn(model, ctc_loss, optimizer, scheduler, DEVICE,
+                         train_loader, val_loader, tk, config.TRAIN_CHECKPOINT_PATH)
 
-        # print(
-        #     f'Epoch: {epoch}, Train Loss: {train_loss}, Valid Loss: {valid_loss}')
-
-        # print('Saving model state...')
-        # torch.save({
-        #     'epoch': epoch,
-        #     'model_state': model.state_dict(),
-        #     'optimizer_state': optimizer.state_dict(),
-        #     'scheduler_state': scheduler.state_dict(),
-        #     'train_loss': train_loss,
-        #     'valid_loss': valid_loss
-        # }, config.TRAIN_CHECKPOINT_PATH)
-
-    # torch.onnx.export(model, "model.onnx")
-    # wandb.save("model.onnx")
+        return model, test_loader
 
 
 if __name__ == '__main__':
