@@ -116,22 +116,28 @@ if __name__ == '__main__':
         'checkpoints/training_state.pth', map_location=device)
     model.load_state_dict(checkpoint['model_state'])
 
-    for batch in test_loader:
-        model.eval()
-        images, targets, target_lengths, gt = batch
-        preds = model(images)
-        preds_decoded = encoder.best_path_decode(preds, return_text=True)
+    # for batch in test_loader:
+    #     model.eval()
+    #     images, targets, target_lengths, gt = batch
+    #     preds = model(images)
+    #     preds_decoded = encoder.best_path_decode(preds, return_text=True)
 
-        # print(text, targets_original)
-        # print(text[0], targets[:target_lengths[0]])
-        # print(preds_decoded[0], gt[0])
-        distance = 0
-        for i in range(len(preds_decoded)):
-            distance += leven.distance(preds_decoded[i], gt[i])
-            # print(preds_decoded[i], gt[i])
-        print(distance/len(preds_decoded))
-        # break
-        # model.to('cpu')
+    #     # print(text, targets_original)
+    #     # print(text[0], targets[:target_lengths[0]])
+    #     # print(preds_decoded[0], gt[0])
+    #     distance = 0
+    #     for i in range(len(preds_decoded)):
+    #         distance += leven.distance(preds_decoded[i], gt[i])
+    #         # print(preds_decoded[i], gt[i])
+    #     print(distance/len(preds_decoded))
+    #     break
+
+    from train import eval_fn
+
+    levendistance = eval_fn(model, test_loader, 'cpu', encoder)
+    print(f"Leven distance: {levendistance}")
+
+    # model.to('cpu')
     # pytorchresnet18 = torch.hub.load('pytorch/vision:v0.9.0', 'resnet152', pretrained=False)
     # summary(model=model, input_size=(1, 1024, 128), batch_size=12)
     # model.eval()

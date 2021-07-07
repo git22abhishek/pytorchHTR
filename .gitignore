@@ -2,6 +2,6 @@
 .vscode/
 .ipynb_checkpoints/
 __pycache__/
-images/
+# images/
 weights/
 checkpoints/

@@ -4,6 +4,7 @@ import albumentations as A
 from tqdm import tqdm, trange
 import sys
 import wandb
+import Levenshtein as leven
 
 from dataset import dataset, Encoder, Collate
 from model import CRNNModel
@@ -29,13 +30,51 @@ def calculate_ctc_loss(ctc_loss_fn, preds, targets, target_lengths):
     return loss
 
 
-def train_log(train_loss, val_loss, example_ct, epoch):
+def train_log(train_loss, example_ct, epoch):
 
     # where the magic happens
-    wandb.log({"epoch": epoch, "train_loss": train_loss, "valid_loss": val_loss,
+    wandb.log({"epoch": epoch, "train_loss": train_loss,
                "num_samples": example_ct}, step=example_ct)
-    print(f"Train loss: {train_loss}, Validation loss: {val_loss} after " +
-          str(example_ct).zfill(5) + f" examples.")
+
+
+def eval_fn(model, data_loader, dev, encoder):
+
+    model.eval()
+
+    avg_val_loss = 0
+    tk = tqdm(data_loader, total=len(data_loader),
+              leave=False, unit_scale=True, desc="Validating")
+
+    edit_distance = 0
+
+    preds = []
+
+    for batch in tk:
+
+        with torch.no_grad():
+
+            images, targets, target_lengths, ground_truth = batch
+
+            # Move to GPU if available
+            model.to(dev)
+            images = images.to(dev)
+            targets = targets.to(dev)
+            target_lengths = target_lengths.to(dev)
+
+            batch_preds = model(images)
+            preds_decoded = encoder.best_path_decode(
+                batch_preds, return_text=True)
+
+            distance = 0
+            for i in range(len(preds_decoded)):
+                distance += leven.distance(preds_decoded[i], ground_truth[i])
+            edit_distance = distance/len(preds_decoded)
+
+        preds.append(batch_preds)
+
+    tk.close()
+
+    return edit_distance/len(data_loader)
 
 
 def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_loader, tk, ck_path):
@@ -84,36 +123,9 @@ def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_lo
             # Update Gradients
             optimizer.step()
 
-            # Validate and report metrics every 25th batch
+            # report metrics every 25th batch
             if ((i + 1) % 25) == 0:
-                print("Validating...")
-
-                model.eval()
-
-                avg_val_loss = 0
-
-                for batch in val_loader:
-                    images, targets, target_lengths, _ = batch
-
-                    with torch.no_grad():
-
-                        images, targets, target_lengths, targets_original = batch
-
-                        # Move to GPU if available
-                        model.to(dev)
-                        images = images.to(dev)
-                        targets = targets.to(dev)
-                        target_lengths = target_lengths.to(dev)
-
-                        preds = model(images)
-
-                        val_loss = calculate_ctc_loss(
-                            ctc_loss_fn, preds, targets, target_lengths)
-                        avg_val_loss += val_loss.item()
-
-                avg_val_loss = avg_val_loss / len(val_loader)
-
-                train_log(train_loss, avg_val_loss, example_ct, epoch)
+                train_log(train_loss, example_ct, epoch)
 
         avg_epoch_loss = avg_epoch_loss / len(train_loader)
         print(
@@ -129,50 +141,6 @@ def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_lo
         }, ck_path)
 
     return model
-
-
-def eval_fn(model, data_loader, ctc_loss_fn, dev, encoder, epoch):
-
-    model.eval()
-
-    avg_val_loss = 0
-    tk = tqdm(data_loader, total=len(data_loader),
-              leave=False, unit_scale=True, desc="Validating")
-
-    preds = []
-
-    for batch in tk:
-
-        with torch.no_grad():
-
-            images, targets, target_lengths, targets_original = batch
-
-            # Move to GPU if available
-            model.to(dev)
-            images = images.to(dev)
-            targets = targets.to(dev)
-            target_lengths = target_lengths.to(dev)
-
-            batch_preds = model(images)
-
-            loss = calculate_ctc_loss(
-                ctc_loss_fn, batch_preds, targets, target_lengths)
-
-        avg_val_loss += loss.item()
-        preds.append(batch_preds)
-
-    tk.close()
-
-    avg_val_loss = avg_val_loss / len(data_loader)
-
-    wandb.log({'avg_val_loss': avg_val_loss})
-
-    # trans = []
-    # for pred in preds:
-    #     transcription = encoder.best_path_decode(pred, return_text=True)
-    #     trans.append((trans, targets_original))
-
-    return preds, avg_val_loss
 
 
 def training_pipeline(config):
