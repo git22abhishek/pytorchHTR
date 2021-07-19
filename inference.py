@@ -10,10 +10,11 @@ import albumentations as A
 # import matplotlib.pyplot as plt
 import numpy as np
 # import pandas as pd
-# import cv2
+import cv2
 from PIL import Image, ImageOps
 from io import BytesIO
 import base64
+import sys
 
 
 def base64str_to_numpy_array(base64str):
@@ -53,3 +54,9 @@ def infer(image: np.ndarray):
             preds, return_text=True)
 
     return preds_decoded[0]
+
+
+if __name__ == '__main__':
+    if sys.argv[1]:
+        image = cv2.imread(sys.argv[1], cv2.IMREAD_GRAYSCALE)
+        print(infer(image))
