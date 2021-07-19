@@ -111,7 +111,7 @@ class Bentham(Dataset):
 
 class Encoder:
 
-    def __init__(self, charset=None, dataset='Bentham'):
+    def __init__(self, charset=None, dataset='IAM'):
         assert dataset in ('IAM', 'Bentham')
         if charset == None:   # When running inference without initializing dataset class
             if dataset == 'Bentham':
