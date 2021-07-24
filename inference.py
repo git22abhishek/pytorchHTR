@@ -1,17 +1,13 @@
-from dataset import dataset, Encoder  # , Collate
+from dataset import Encoder
 from model import CRNNModel
 import transform
 
 import torch
-# from torch.utils.data import DataLoader
-import albumentations as A
-# from tqdm import tqdm, trange
-
-# import matplotlib.pyplot as plt
 import numpy as np
-# import pandas as pd
-import cv2
+# import cv2
 from PIL import Image, ImageOps
+import albumentations as A
+
 from io import BytesIO
 import base64
 import sys
@@ -56,7 +52,7 @@ def infer(image: np.ndarray):
     return preds_decoded[0]
 
 
-if __name__ == '__main__':
-    if sys.argv[1]:
-        image = cv2.imread(sys.argv[1], cv2.IMREAD_GRAYSCALE)
-        print(infer(image))
+# if __name__ == '__main__':
+#     if sys.argv[1]:
+#         image = cv2.imread(sys.argv[1], cv2.IMREAD_GRAYSCALE)
+#         print(infer(image))
