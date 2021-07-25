@@ -1,5 +1,5 @@
 from albumentations.core.transforms_interface import ImageOnlyTransform
-from torchvision.transforms import functional as F
+# from torchvision.transforms import functional as F
 import cv2
 import numpy as np
 
@@ -43,12 +43,12 @@ class Rotate(ImageOnlyTransform):
         return ("rotate_code",)
 
 
-class ToTensor(ImageOnlyTransform):
-    def __init__(self, always_apply=True, p=1.0):
-        super().__init__(always_apply=always_apply, p=p)
+# class ToTensor(ImageOnlyTransform):
+#     def __init__(self, always_apply=True, p=1.0):
+#         super().__init__(always_apply=always_apply, p=p)
 
-    def apply(self, img, **params):
-        return F.to_tensor(img)
+#     def apply(self, img, **params):
+#         return F.to_tensor(img)
 
-    def get_transform_init_args_names(self):
-        return ()
+#     def get_transform_init_args_names(self):
+#         return ()

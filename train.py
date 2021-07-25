@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 import albumentations as A
+from albumentations.pytorch.transforms import ToTensorV2
 from tqdm import tqdm, trange
 import sys
 import wandb
@@ -157,16 +158,17 @@ def training_pipeline(config):
             transform.Deslant(always_apply=True, p=1.0),
             transform.Binarize(p=0.3),
             A.augmentations.geometric.transforms.Affine(
-                scale=0.8, shear=(-3, 3), cval=(195, 255), p=0.8,
+                scale=0.8, shear=(-3, 3), cval=255, p=0.8,
                 translate_percent={"x": (-0.1, 0.1), "y": (-0.1, 0.1)}),
             A.augmentations.geometric.Resize(
                 height=128, width=1024, p=1.0, always_apply=True),
             A.augmentations.transforms.Blur(blur_limit=(3, 4), p=0.4),
             A.augmentations.transforms.GaussNoise(var_limit=(
                 10.0, 50.0), mean=0, per_channel=True, always_apply=False, p=0.3),
-            transform.Binarize(p=0.3),
             transform.Rotate(always_apply=True, p=1.0),
-            transform.ToTensor(always_apply=True, p=1.0)
+            A.augmentations.transforms.Normalize(
+                mean=(119.872), std=(54.866), p=1.0, always_apply=True),
+            ToTensorV2(always_apply=True, p=1.0),
         ])
 
         trainset, validset, testset = dataset(

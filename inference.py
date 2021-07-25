@@ -5,6 +5,7 @@ import transform
 import torch
 # from torch.utils.data import DataLoader
 import albumentations as A
+from albumentations.pytorch.transforms import ToTensorV2
 # from tqdm import tqdm, trange
 
 # import matplotlib.pyplot as plt
@@ -35,10 +36,13 @@ def infer(image: np.ndarray):
     model.load_state_dict(checkpoint['model_state'])
 
     transforms = A.Compose([
+        transform.Deslant(always_apply=True, p=1.0),
         A.augmentations.geometric.Resize(
             height=128, width=1024, p=1.0, always_apply=True),
         transform.Rotate(always_apply=True, p=1.0),
-        transform.ToTensor(always_apply=True, p=1.0)
+        A.augmentations.transforms.Normalize(
+            mean=(119.872), std=(54.866), p=1.0, always_apply=True),
+        ToTensorV2(always_apply=True, p=1.0),
     ])
 
     image = transforms(image=image)['image']

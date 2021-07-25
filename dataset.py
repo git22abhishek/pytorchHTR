@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 from torchvision.transforms import functional as F
 import albumentations as A
+from albumentations.pytorch.transforms import ToTensorV2
 from skimage import io
 import cv2
 
@@ -37,7 +38,9 @@ class IAM(Dataset):
                 A.augmentations.geometric.Resize(
                     height=128, width=1024, p=1.0, always_apply=True),
                 transform.Rotate(always_apply=True, p=1.0),
-                transform.ToTensor(always_apply=True, p=1.0)
+                A.augmentations.transforms.Normalize(
+                    mean=(240.467), std=(43.760), p=1.0, always_apply=True),
+                ToTensorV2(always_apply=True, p=1.0),
             ])
             image = transforms(image=image)['image']
 
