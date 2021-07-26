@@ -41,7 +41,7 @@ def infer(image: np.ndarray):
             height=128, width=1024, p=1.0, always_apply=True),
         transform.Rotate(always_apply=True, p=1.0),
         A.augmentations.transforms.Normalize(
-            mean=(119.872), std=(54.866), p=1.0, always_apply=True),
+            mean=(118.680), std=(54.212), p=1.0, always_apply=True),
         ToTensorV2(always_apply=True, p=1.0),
     ])
 

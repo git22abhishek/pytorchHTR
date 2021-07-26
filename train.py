@@ -38,7 +38,7 @@ def train_log(train_loss, example_ct, epoch):
                "num_samples": example_ct}, step=example_ct)
 
 
-def eval_fn(model, data_loader, dev, encoder):
+def eval_fn(model, data_loader, dev, encoder, ctc_loss_fn):
 
     model.eval()
 
@@ -49,6 +49,7 @@ def eval_fn(model, data_loader, dev, encoder):
     edit_distance = 0
 
     preds = []
+    total_loss = 0
 
     for batch in tk:
 
@@ -63,6 +64,12 @@ def eval_fn(model, data_loader, dev, encoder):
             target_lengths = target_lengths.to(dev)
 
             batch_preds = model(images)
+
+            loss = calculate_ctc_loss(
+                ctc_loss_fn, batch_preds, targets, target_lengths)
+            val_loss = loss.item()
+            total_loss += val_loss
+
             preds_decoded = encoder.best_path_decode(
                 batch_preds, return_text=True)
 
@@ -75,10 +82,10 @@ def eval_fn(model, data_loader, dev, encoder):
 
     tk.close()
 
-    return edit_distance/len(data_loader)
+    return edit_distance/len(data_loader), total_loss/len(data_loader)
 
 
-def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_loader, tk, ck_path):
+def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_loader, tk, ck_path, encoder):
 
     # tell wandb to watch what the model gets up to: gradients, weights, and more
     wandb.watch(model, ctc_loss_fn, log="all", log_freq=10)
@@ -129,8 +136,14 @@ def train_fn(model, ctc_loss_fn, optimizer, scheduler, dev, train_loader, val_lo
                 train_log(train_loss, example_ct, epoch)
 
         avg_epoch_loss = avg_epoch_loss / len(train_loader)
+
+        leven, val_loss = eval_fn(model, val_loader, dev, encoder, ctc_loss_fn)
+
+        wandb.log({"epoch": epoch, "epoch_train_loss": avg_epoch_loss, "leven_distance": leven,
+                   "epoch_val_loss": val_loss, "num_samples": example_ct}, step=example_ct)
+
         print(
-            f'Epoch: {epoch}, Avg Train Loss: {avg_epoch_loss}')
+            f'Epoch: {epoch}, Avg Train Loss: {avg_epoch_loss}, Avg Validation Loss: {val_loss}, Leven distance: {leven}')
 
         print('Saving model state...')
         torch.save({
@@ -148,7 +161,7 @@ def training_pipeline(config):
 
     wandb.login()
 
-    with wandb.init(project="handwriting-recognition", config=config):
+    with wandb.init(project="handwriting-recognition", config=config._asdict()):
         # # access all HPs through wandb.config, so logging matches execution!
         # config = wandb.config
 
@@ -235,7 +248,7 @@ def training_pipeline(config):
             tk = tqdm(range(config.NUM_EPOCHS), file=sys.stdout, desc='EPOCHS')
 
         model = train_fn(model, ctc_loss, optimizer, scheduler, DEVICE,
-                         train_loader, val_loader, tk, config.TRAIN_CHECKPOINT_PATH)
+                         train_loader, val_loader, tk, config.TRAIN_CHECKPOINT_PATH, encoder)
 
         return model, test_loader
 
